@@ -1,0 +1,31 @@
+{
+    "name": "sgi-website",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "start": "node ./src/server.js",
+        "dev": "node --watch ./src/server.js",
+        "css": "npx @tailwindcss/cli -i ./src/input.css -o ./public/output.css --watch",
+        "build": "npx @tailwindcss/cli -i ./src/input.css -o ./public/output.css --minify",
+        "seed": "node ./src/seed.js"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "module",
+    "dependencies": {
+        "@supabase/ssr": "^0.10.3",
+        "@supabase/supabase-js": "^2.108.0",
+        "bcryptjs": "^3.0.3",
+        "dotenv": "^17.4.2",
+        "express": "^5.2.1",
+        "express-session": "^1.19.0",
+        "pg": "^8.21.0"
+    },
+    "devDependencies": {
+        "@tailwindcss/cli": "^4.3.0",
+        "eslint": "^10.4.1",
+        "tailwindcss": "^4.3.0"
+    }
+}

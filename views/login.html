@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Đăng nhập</title>
+    <link rel="stylesheet" href="/output.css" />
+  </head>
+
+  <body class="min-h-screen bg-slate-950 text-white flex items-center justify-center px-4">
+    <main class="w-full max-w-md rounded-2xl bg-slate-900 p-8 shadow-xl">
+      <h1 class="mb-2 text-center text-3xl font-bold">Đăng nhập</h1>
+
+      <p class="mb-8 text-center text-slate-400">
+        Vào hệ thống SGI Website
+      </p>
+
+      <div
+        id="errorBox"
+        class="mb-5 hidden rounded-lg bg-red-500/20 p-3 text-sm text-red-300"
+      >
+        Sai tài khoản hoặc mật khẩu.
+      </div>
+
+      <form action="/login" method="POST" class="space-y-5">
+        <div>
+          <label for="username" class="mb-2 block text-sm font-medium">
+            Tài khoản
+          </label>
+
+          <input
+            id="username"
+            name="username"
+            type="text"
+            required
+            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-cyan-400"
+            placeholder="Nhập tài khoản"
+          />
+        </div>
+
+        <div>
+          <label for="password" class="mb-2 block text-sm font-medium">
+            Mật khẩu
+          </label>
+
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-cyan-400"
+            placeholder="Nhập mật khẩu"
+          />
+        </div>
+
+        <button
+          type="submit"
+          class="w-full rounded-lg bg-cyan-400 px-4 py-3 font-bold text-slate-950 hover:bg-cyan-300"
+        >
+          Đăng nhập
+        </button>
+      </form>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const hasError = params.get("error");
+
+      if (hasError === "1") {
+        document.getElementById("errorBox").classList.remove("hidden");
+      }
+    </script>
+  </body>
+</html>

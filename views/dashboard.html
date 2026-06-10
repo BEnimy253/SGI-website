@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard học sinh</title>
+    <link rel="stylesheet" href="/output.css" />
+  </head>
+
+  <body class="min-h-screen bg-slate-950 text-white">
+    <header class="flex items-center justify-between border-b border-slate-800 px-8 py-5">
+      <h1 class="text-2xl font-bold">Bảng điểm học sinh</h1>
+
+      <form action="/logout" method="POST">
+        <button
+          type="submit"
+          class="rounded-lg bg-red-500 px-4 py-2 font-semibold text-white hover:bg-red-400"
+        >
+          Đăng xuất
+        </button>
+      </form>
+    </header>
+
+    <main class="mx-auto max-w-3xl px-8 py-12">
+      <section class="rounded-2xl bg-slate-900 p-8 shadow-xl">
+        <p class="mb-3 text-cyan-300 font-semibold">Thông tin học sinh</p>
+
+        <h2 class="mb-6 text-4xl font-bold" id="studentName">
+          Đang tải...
+        </h2>
+
+        <div class="space-y-4 text-lg">
+          <p>
+            <span class="text-slate-400">Tài khoản:</span>
+            <span id="username" class="font-semibold"></span>
+          </p>
+
+          <p>
+            <span class="text-slate-400">KTTX:</span>
+            <span id="kttx" class="font-bold text-cyan-300"></span>
+          </p>
+
+          <p>
+            <span class="text-slate-400">KTDK:</span>
+            <span id="ktdk" class="font-bold text-cyan-300"></span>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      async function loadStudentInfo() {
+        try {
+          const response = await fetch("/api/student-info");
+
+          if (!response.ok) {
+            throw new Error("Không lấy được dữ liệu học sinh.");
+          }
+
+          const data = await response.json();
+          const student = data.student;
+
+          document.getElementById("studentName").textContent =
+            student.full_name ?? "Chưa có họ tên";
+
+          document.getElementById("username").textContent =
+            student.username ?? "Không có";
+
+          document.getElementById("kttx").textContent =
+            student.kttx ?? "Chưa có điểm";
+
+          document.getElementById("ktdk").textContent =
+            student.ktdk ?? "Chưa có điểm";
+        } catch (error) {
+          console.error(error);
+
+          document.getElementById("studentName").textContent =
+            "Lỗi tải dữ liệu";
+        }
+      }
+
+      loadStudentInfo();
+    </script>
+  </body>
+</html>
