@@ -296,7 +296,7 @@
 
       .detail-grid {
         display: grid;
-        grid-template-columns: repeat(7, minmax(94px, 1fr));
+        grid-template-columns: repeat(8, minmax(94px, 1fr));
         gap: 10px;
       }
 
@@ -445,7 +445,7 @@
     </main>
 
     <script>
-      const missingText = "Chưa có";
+      const missingText = "-";
       const scoreRows = document.getElementById("scoreRows");
 
       function formatValue(value, fallback = missingText) {
@@ -550,12 +550,13 @@
         grid.className = "detail-grid";
 
         grid.append(
-          createDetailItem("KTTX1", score.kttx1),
-          createDetailItem("KTTX2", score.kttx2),
-          createDetailItem("KTDK1", score.ktdk1),
-          createDetailItem("KTDK2", score.ktdk2),
-          createDetailItem("KTM1", score.ktm1),
-          createDetailItem("KTM2", score.ktm2),
+          createDetailItem("KTTX 1", score.kttx1),
+          createDetailItem("KTTX 2", score.kttx2),
+          createDetailItem("KTĐK 1", score.ktdk1),
+          createDetailItem("KTĐK 2", score.ktdk2),
+          createDetailItem("ĐTB", score.processScoreAverage),
+          createDetailItem("KTM 1", score.ktm1),
+          createDetailItem("KTM 2", score.ktm2),
           createDetailItem("Điểm tổng", score.finalScore, true),
         );
 
