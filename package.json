@@ -7,8 +7,7 @@
         "start": "node ./src/server.js",
         "dev": "node --watch ./src/server.js",
         "css": "npx @tailwindcss/cli -i ./src/input.css -o ./public/output.css --watch",
-        "build": "npx @tailwindcss/cli -i ./src/input.css -o ./public/output.css --minify",
-        "seed": "node ./src/seed.js"
+        "build": "npx @tailwindcss/cli -i ./src/input.css -o ./public/output.css --minify"
     },
     "keywords": [],
     "author": "",
