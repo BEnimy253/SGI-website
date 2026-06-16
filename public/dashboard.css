@@ -144,6 +144,10 @@ select {
   padding: 18px 20px;
 }
 
+.panel-subheader {
+  border-top: 1px solid var(--line);
+}
+
 .panel-header h2,
 .panel-header h3 {
   margin: 0;
@@ -375,6 +379,10 @@ tbody tr:hover {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.45;
+}
+
+.class-button .badge {
+  margin-top: 10px;
 }
 
 .score-input {

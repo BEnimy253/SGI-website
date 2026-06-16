@@ -300,7 +300,10 @@ function mapScore(row) {
     dateOfBirth: row.date_of_birth,
     classId: row.class_id,
     classCode: row.class_code,
-    classStatus: row.class_status,
+    classSubjectStatus: row.class_subject_status,
+    programId: row.program_id,
+    major: row.major,
+    educationLevel: row.education_level,
     subjectId: row.subject_id,
     subjectCode: row.subject_code,
     subjectName: row.subject_name,
@@ -350,8 +353,7 @@ async function getCurrentUser(client, accountId) {
         c.major,
         c.education_level,
         c.school_year_start,
-        c.school_year_end,
-        c.status as class_status
+        c.school_year_end
       from public.students s
       left join public.classes c
         on c.id = s.class_id
@@ -368,7 +370,7 @@ async function getCurrentUser(client, accountId) {
       `
       select
         id,
-        teacher_code,
+        contract_type,
         full_name,
         phone,
         email,
@@ -385,7 +387,7 @@ async function getCurrentUser(client, accountId) {
   if (account.role === "academic_executor") {
     const profileResult = await client.query(
       `
-      select id, staff_code, full_name, phone, email
+      select id, full_name, phone, email
       from public.academic_executors
       where account_id = $1
       limit 1
@@ -410,7 +412,8 @@ async function getManagementOverview(client) {
       (select count(*)::int from public.teachers) as teachers,
       (select count(*)::int from public.students) as students,
       (select count(*)::int from public.classes) as classes,
-      (select count(*)::int from public.subjects) as subjects
+      (select count(*)::int from public.subjects) as subjects,
+      (select count(*)::int from public.academic_programs) as programs
     `,
   );
 
@@ -434,7 +437,6 @@ async function getManagementOverview(client) {
     `
     select
       ae.id,
-      ae.staff_code,
       ae.full_name,
       ae.phone,
       ae.email,
@@ -444,7 +446,7 @@ async function getManagementOverview(client) {
     from public.academic_executors ae
     join public.accounts a
       on a.id = ae.account_id
-    order by ae.staff_code
+    order by ae.full_name
     `,
   );
 
@@ -452,7 +454,7 @@ async function getManagementOverview(client) {
     `
     select
       t.id,
-      t.teacher_code,
+      t.contract_type,
       t.full_name,
       t.phone,
       t.email,
@@ -463,7 +465,7 @@ async function getManagementOverview(client) {
     from public.teachers t
     left join public.accounts a
       on a.id = t.account_id
-    order by t.teacher_code
+    order by t.full_name
     `,
   );
 
@@ -476,13 +478,12 @@ async function getManagementOverview(client) {
       c.school_year_end,
       c.major,
       c.education_level,
-      c.status,
-      c.homeroom_teacher_id,
-      t.teacher_code as homeroom_teacher_code,
-      t.full_name as homeroom_teacher_name
+      c.program_id,
+      p.major as program_major,
+      p.education_level as program_education_level
     from public.classes c
-    left join public.teachers t
-      on t.id = c.homeroom_teacher_id
+    join public.academic_programs p
+      on p.id = c.program_id
     order by c.class_code
     `,
   );
@@ -511,9 +512,62 @@ async function getManagementOverview(client) {
 
   const subjectsResult = await client.query(
     `
-    select id, subject_code, subject_name, subject_order, period
-    from public.subjects
-    order by subject_order
+    select
+      s.id,
+      s.subject_code,
+      s.subject_name,
+      s.subject_order,
+      s.period,
+      s.program_id,
+      p.major,
+      p.education_level
+    from public.subjects s
+    join public.academic_programs p
+      on p.id = s.program_id
+    order by p.major, p.education_level, s.subject_order
+    `,
+  );
+
+  const classSubjectsResult = await client.query(
+    `
+    select
+      cs.class_id,
+      c.class_code,
+      cs.subject_id,
+      s.subject_code,
+      s.subject_name,
+      s.subject_order,
+      cs.status,
+      cs.opened_at,
+      cs.teacher_id,
+      t.full_name as teacher_name,
+      t.contract_type as teacher_contract_type
+    from public.class_subjects cs
+    join public.classes c
+      on c.id = cs.class_id
+    join public.subjects s
+      on s.id = cs.subject_id
+    left join public.teachers t
+      on t.id = cs.teacher_id
+    order by c.class_code, s.subject_order
+    `,
+  );
+
+  const programsResult = await client.query(
+    `
+    select
+      p.id,
+      p.major,
+      p.education_level,
+      count(distinct c.id)::int as classes_count,
+      count(distinct s.id)::int as subjects_count
+    from public.academic_programs p
+    left join public.classes c
+      on c.program_id = p.id
+    left join public.subjects s
+      on s.program_id = p.id
+    group by p.id, p.major, p.education_level
+    order by p.major, p.education_level
     `,
   );
 
@@ -525,13 +579,15 @@ async function getManagementOverview(client) {
     classes: classesResult.rows,
     students: studentsResult.rows,
     subjects: subjectsResult.rows,
+    classSubjects: classSubjectsResult.rows,
+    programs: programsResult.rows,
   };
 }
 
 async function getTeacherProfile(client, accountId) {
   const result = await client.query(
     `
-    select id, teacher_code, full_name
+    select id, full_name, contract_type
     from public.teachers
     where account_id = $1
     limit 1
@@ -546,105 +602,65 @@ async function getTeacherProfile(client, accountId) {
   return result.rows[0];
 }
 
-async function getTeacherClassDetail(client, teacherId, classId) {
-  const classResult = await client.query(
+async function getTeacherAssignmentDetail(client, teacherId, classId, subjectId) {
+  const assignmentResult = await client.query(
     `
     select
-      c.id,
-      c.class_code,
-      c.school_year_start,
-      c.school_year_end,
-      c.major,
-      c.education_level,
-      c.status,
-      t.full_name as homeroom_teacher_name
-    from public.classes c
-    left join public.teachers t
-      on t.id = c.homeroom_teacher_id
-    where c.id = $1
-      and (
-        c.homeroom_teacher_id = $2
-        or exists (
-          select 1
-          from public.class_subjects cs
-          where cs.class_id = c.id
-            and cs.teacher_id = $2
-        )
-      )
+      teacher_id,
+      teacher_name,
+      contract_type,
+      class_id,
+      class_code,
+      school_year_start,
+      school_year_end,
+      program_id,
+      major,
+      education_level,
+      subject_id,
+      subject_code,
+      subject_name,
+      subject_order,
+      class_subject_status,
+      opened_at
+    from public.teacher_assigned_classes_view
+    where teacher_id = $1
+      and class_id = $2
+      and subject_id = $3
     limit 1
     `,
-    [classId, teacherId],
+    [teacherId, classId, subjectId],
   );
 
-  const classInfo = classResult.rows[0];
+  const assignment = assignmentResult.rows[0];
 
-  if (!classInfo) {
-    throw createHttpError(404, "Không tìm thấy lớp được phân công.");
+  if (!assignment) {
+    throw createHttpError(404, "Không tìm thấy lớp - môn được phân công.");
   }
-
-  const studentsResult = await client.query(
-    `
-    select
-      student_id as id,
-      student_code,
-      full_name,
-      to_char(date_of_birth, 'YYYY-MM-DD') as date_of_birth
-    from public.class_students_view
-    where class_id = $1
-    order by student_code
-    `,
-    [classId],
-  );
-
-  const subjectsResult = await client.query(
-    `
-    select
-      cs.subject_id,
-      su.subject_code,
-      su.subject_name,
-      su.subject_order,
-      su.period,
-      cs.is_opened,
-      cs.opened_at,
-      t.teacher_code,
-      t.full_name as teacher_name
-    from public.class_subjects cs
-    join public.subjects su
-      on su.id = cs.subject_id
-    left join public.teachers t
-      on t.id = cs.teacher_id
-    where cs.class_id = $1
-    order by su.subject_order
-    `,
-    [classId],
-  );
 
   const scoresResult = await client.query(
     `
     select
       d.*,
       (
-        d.class_status = 'open'
-        and cs.is_opened = true
-        and cs.teacher_id = $2
+        d.class_subject_status = 'open'
+        and cs.teacher_id = $3::bigint
       ) as can_update
     from public.class_student_scores_view d
-    left join public.class_subjects cs
+    join public.class_subjects cs
       on cs.class_id = d.class_id
      and cs.subject_id = d.subject_id
     where d.class_id = $1
-    order by d.student_code, d.subject_order
+      and d.subject_id = $2
+    order by d.student_code
     `,
-    [classId, teacherId],
+    [classId, subjectId, teacherId],
   );
 
   return {
-    classInfo: {
-      ...classInfo,
-      course: formatCourse(classInfo),
+    assignment: {
+      ...assignment,
+      course: formatCourse(assignment),
     },
-    students: studentsResult.rows,
-    subjects: subjectsResult.rows,
     scores: scoresResult.rows.map(mapScore),
   };
 }
@@ -759,8 +775,7 @@ app.get(
           c.major,
           c.education_level,
           c.school_year_start,
-          c.school_year_end,
-          c.status as class_status
+          c.school_year_end
         from public.students s
         left join public.classes c
           on c.id = s.class_id
@@ -795,7 +810,6 @@ app.get(
           classCode: studentRow.class_code,
           major: studentRow.major,
           educationLevel: studentRow.education_level,
-          classStatus: studentRow.class_status,
           course: formatCourse(studentRow),
         },
         scores: scoresResult.rows.map(mapScore),
@@ -812,42 +826,49 @@ app.get(
   asyncRoute(async (req, res) => {
     const data = await withAppContext(req, async (client) => {
       const teacher = await getTeacherProfile(client, req.session.accountId);
-      const classesResult = await client.query(
+      const assignmentsResult = await client.query(
         `
         select
           tac.class_id,
           tac.class_code,
           tac.school_year_start,
           tac.school_year_end,
+          tac.program_id,
           tac.major,
           tac.education_level,
-          tac.status,
-          tac.is_homeroom_teacher,
-          count(distinct st.id)::int as student_count,
-          count(distinct cs.subject_id)::int as subject_count
+          tac.subject_id,
+          tac.subject_code,
+          tac.subject_name,
+          tac.subject_order,
+          tac.class_subject_status,
+          tac.opened_at,
+          count(distinct st.id)::int as student_count
         from public.teacher_assigned_classes_view tac
         left join public.students st
           on st.class_id = tac.class_id
-        left join public.class_subjects cs
-          on cs.class_id = tac.class_id
         where tac.teacher_id = $1
         group by
           tac.class_id,
           tac.class_code,
           tac.school_year_start,
           tac.school_year_end,
+          tac.program_id,
           tac.major,
           tac.education_level,
-          tac.status,
-          tac.is_homeroom_teacher
-        order by tac.class_code
+          tac.subject_id,
+          tac.subject_code,
+          tac.subject_name,
+          tac.subject_order,
+          tac.class_subject_status,
+          tac.opened_at
+        order by tac.class_code, tac.subject_order
         `,
         [teacher.id],
       );
 
       return {
         teacher,
-        classes: classesResult.rows.map((row) => ({
+        assignments: assignmentsResult.rows.map((row) => ({
           ...row,
           course: formatCourse(row),
         })),
@@ -859,13 +880,19 @@ app.get(
 );
 
 app.get(
-  "/api/teacher/classes/:classId",
+  "/api/teacher/classes/:classId/subjects/:subjectId",
   requireRole("teacher"),
   asyncRoute(async (req, res) => {
     const classId = parseId(req.params.classId, "Mã lớp");
+    const subjectId = parseId(req.params.subjectId, "Mã môn");
     const data = await withAppContext(req, async (client) => {
       const teacher = await getTeacherProfile(client, req.session.accountId);
-      const detail = await getTeacherClassDetail(client, teacher.id, classId);
+      const detail = await getTeacherAssignmentDetail(
+        client,
+        teacher.id,
+        classId,
+        subjectId,
+      );
       return { teacher, ...detail };
     });
 
@@ -882,6 +909,7 @@ app.put(
     const values = SCORE_FIELDS.map((field) => parseScore(req.body[field], field.toUpperCase()));
 
     const data = await withAppContext(req, async (client) => {
+      const teacher = await getTeacherProfile(client, req.session.accountId);
       const updateResult = await client.query(
         `
         update public.student_scores
@@ -905,13 +933,21 @@ app.put(
 
       const scoreResult = await client.query(
         `
-        select *
-        from public.student_score_details_view
-        where student_id = $1
-          and subject_id = $2
+        select
+          d.*,
+          (
+            d.class_subject_status = 'open'
+            and cs.teacher_id = $3::bigint
+          ) as can_update
+        from public.student_score_details_view d
+        join public.class_subjects cs
+          on cs.class_id = d.class_id
+         and cs.subject_id = d.subject_id
+        where d.student_id = $1
+          and d.subject_id = $2
         limit 1
         `,
-        [studentId, subjectId],
+        [studentId, subjectId, teacher.id],
       );
 
       return mapScore(scoreResult.rows[0]);
@@ -938,12 +974,11 @@ app.post(
     const data = await withAppContext(req, async (client) => {
       const result = await client.query(
         `
-        select public.create_academic_executor_account($1, $2, $3, $4, $5, $6) as account_id
+        select public.create_academic_executor_account($1, $2, $3, $4, $5) as account_id
         `,
         [
           requiredText(body.username, "Tên tài khoản"),
           requiredText(body.password, "Mật khẩu"),
-          requiredText(body.staffCode, "Mã giáo vụ"),
           requiredText(body.fullName, "Họ tên"),
           optionalText(body.phone),
           optionalText(body.email),
@@ -986,16 +1021,14 @@ app.put(
         `
         update public.academic_executors
         set
-          staff_code = $1,
-          full_name = $2,
-          phone = $3,
-          email = $4,
+          full_name = $1,
+          phone = $2,
+          email = $3,
           updated_at = now()
-        where id = $5
+        where id = $4
         returning id
         `,
         [
-          requiredText(body.staffCode, "Mã giáo vụ"),
           requiredText(body.fullName, "Họ tên"),
           optionalText(body.phone),
           optionalText(body.email),
@@ -1056,7 +1089,7 @@ app.post(
         [
           requiredText(body.username, "Tên tài khoản"),
           requiredText(body.password, "Mật khẩu"),
-          requiredText(body.teacherCode, "Mã giáo viên"),
+          requiredText(body.contractType, "Loại hợp đồng"),
           requiredText(body.fullName, "Họ tên"),
           optionalText(body.phone),
           optionalText(body.email),
@@ -1104,7 +1137,7 @@ app.put(
         `
         update public.teachers
         set
-          teacher_code = $1,
+          contract_type = $1,
           full_name = $2,
           phone = $3,
           email = $4,
@@ -1114,7 +1147,7 @@ app.put(
         returning id
         `,
         [
-          requiredText(body.teacherCode, "Mã giáo viên"),
+          requiredText(body.contractType, "Loại hợp đồng"),
           requiredText(body.fullName, "Họ tên"),
           optionalText(body.phone),
           optionalText(body.email),
@@ -1155,7 +1188,7 @@ app.delete(
       await client.query(
         `
         update public.class_subjects
-        set is_opened = false,
+        set status = 'closed',
             teacher_id = null,
             opened_at = null
         where teacher_id = $1
@@ -1290,6 +1323,112 @@ app.delete(
 );
 
 app.post(
+  "/api/management/programs",
+  requireRole("admin", "academic_executor"),
+  asyncRoute(async (req, res) => {
+    const body = req.body;
+    const data = await withAppContext(req, async (client) => {
+      const result = await client.query(
+        `
+        insert into public.academic_programs (
+          major,
+          education_level
+        )
+        values ($1, $2)
+        returning id
+        `,
+        [
+          requiredText(body.major, "Ngành học"),
+          requiredText(body.educationLevel, "Bậc đào tạo"),
+        ],
+      );
+
+      return result.rows[0];
+    });
+
+    res.status(201).json(data);
+  }),
+);
+
+app.put(
+  "/api/management/programs/:programId",
+  requireRole("admin", "academic_executor"),
+  asyncRoute(async (req, res) => {
+    const programId = parseId(req.params.programId, "Mã ngành học");
+    const body = req.body;
+    const data = await withAppContext(req, async (client) => {
+      const result = await client.query(
+        `
+        update public.academic_programs
+        set
+          major = $1,
+          education_level = $2,
+          updated_at = now()
+        where id = $3
+        returning id
+        `,
+        [
+          requiredText(body.major, "Ngành học"),
+          requiredText(body.educationLevel, "Bậc đào tạo"),
+          programId,
+        ],
+      );
+
+      if (!result.rows[0]) {
+        throw createHttpError(404, "Không tìm thấy ngành học.");
+      }
+
+      return result.rows[0];
+    });
+
+    res.json(data);
+  }),
+);
+
+app.delete(
+  "/api/management/programs/:programId",
+  requireRole("admin", "academic_executor"),
+  asyncRoute(async (req, res) => {
+    const programId = parseId(req.params.programId, "Mã ngành học");
+    const data = await withAppContext(req, async (client) => {
+      const usageResult = await client.query(
+        `
+        select
+          (select count(*)::int from public.classes where program_id = $1) as classes,
+          (select count(*)::int from public.subjects where program_id = $1) as subjects
+        `,
+        [programId],
+      );
+      const usage = usageResult.rows[0];
+
+      if (usage.classes > 0 || usage.subjects > 0) {
+        throw createHttpError(
+          400,
+          "Không thể xóa ngành học đang được dùng bởi lớp hoặc môn học.",
+        );
+      }
+
+      const result = await client.query(
+        `
+        delete from public.academic_programs
+        where id = $1
+        returning id
+        `,
+        [programId],
+      );
+
+      if (!result.rows[0]) {
+        throw createHttpError(404, "Không tìm thấy ngành học.");
+      }
+
+      return result.rows[0];
+    });
+
+    res.json(data);
+  }),
+);
+
+app.post(
   "/api/management/classes",
   requireRole("admin", "academic_executor"),
   asyncRoute(async (req, res) => {
@@ -1297,28 +1436,56 @@ app.post(
     const data = await withAppContext(req, async (client) => {
       const result = await client.query(
         `
-        insert into public.classes (
-          class_code,
-          school_year_start,
-          school_year_end,
-          major,
-          education_level,
-          status,
-          homeroom_teacher_id
+        with new_class as (
+          insert into public.classes (
+            class_code,
+            school_year_start,
+            school_year_end,
+            major,
+            education_level,
+            program_id
+          )
+          select
+            $1,
+            $2,
+            $3,
+            p.major,
+            p.education_level,
+            p.id
+          from public.academic_programs p
+          where p.id = $4
+          returning id, program_id
+        ),
+        inserted_subjects as (
+          insert into public.class_subjects (
+            class_id,
+            subject_id,
+            status
+          )
+          select
+            nc.id,
+            s.id,
+            'closed'
+          from new_class nc
+          join public.subjects s
+            on s.program_id = nc.program_id
+          on conflict (class_id, subject_id) do nothing
+          returning class_id
         )
-        values ($1, $2, $3, $4, $5, $6, $7)
-        returning id
+        select id
+        from new_class
         `,
         [
           requiredText(body.classCode, "Mã lớp"),
           parseSchoolYear(body.schoolYearStart, "Năm bắt đầu"),
           parseSchoolYear(body.schoolYearEnd, "Năm kết thúc"),
-          requiredText(body.major, "Ngành"),
-          requiredText(body.educationLevel, "Bậc đào tạo"),
-          body.status === "closed" ? "closed" : "open",
-          parseOptionalId(body.homeroomTeacherId, "Giáo viên phụ trách"),
+          parseId(body.programId, "Chương trình đào tạo"),
         ],
       );
+
+      if (!result.rows[0]) {
+        throw createHttpError(404, "Không tìm thấy chương trình đào tạo.");
+      }
 
       return result.rows[0];
     });
@@ -1341,22 +1508,20 @@ app.put(
           class_code = $1,
           school_year_start = $2,
           school_year_end = $3,
-          major = $4,
-          education_level = $5,
-          status = $6,
-          homeroom_teacher_id = $7,
+          major = p.major,
+          education_level = p.education_level,
+          program_id = p.id,
           updated_at = now()
-        where id = $8
-        returning id
+        from public.academic_programs p
+        where public.classes.id = $5
+          and p.id = $4
+        returning public.classes.id
         `,
         [
           requiredText(body.classCode, "Mã lớp"),
           parseSchoolYear(body.schoolYearStart, "Năm bắt đầu"),
           parseSchoolYear(body.schoolYearEnd, "Năm kết thúc"),
-          requiredText(body.major, "Ngành"),
-          requiredText(body.educationLevel, "Bậc đào tạo"),
-          body.status === "closed" ? "closed" : "open",
-          parseOptionalId(body.homeroomTeacherId, "Giáo viên phụ trách"),
+          parseId(body.programId, "Chương trình đào tạo"),
           classId,
         ],
       );

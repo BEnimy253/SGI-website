@@ -12,7 +12,7 @@ const state = {
   studentData: null,
   teacherData: null,
   teacherDetail: null,
-  activeTeacherClassId: null,
+  activeTeacherAssignmentKey: null,
   managementData: null,
   managementView: "overview",
 };
@@ -20,7 +20,7 @@ const state = {
 const roleTitles = {
   admin: "Quản trị hệ thống",
   academic_executor: "Quản lý đào tạo",
-  teacher: "Lớp được phân công",
+  teacher: "Lớp - môn được phân công",
   student: "Bảng điểm học sinh",
 };
 
@@ -145,8 +145,6 @@ function setHeader() {
   const displayName =
     profile.full_name ||
     profile.student_code ||
-    profile.teacher_code ||
-    profile.staff_code ||
     state.me.account.username;
 
   pageTitle.textContent = roleTitles[state.me.account.role] || "SGI Portal";
@@ -195,7 +193,6 @@ function renderStudent() {
       <section class="panel">
         <div class="panel-header">
           <h2>${formatValue(student.fullName)}</h2>
-          ${statusBadge(student.classStatus)}
         </div>
         <div class="panel-body">
           <div class="profile-grid">
@@ -284,37 +281,51 @@ function toggleScoreDetail(row) {
 
 async function loadTeacher() {
   state.teacherData = await api("/api/teacher/classes");
-  state.activeTeacherClassId =
-    state.activeTeacherClassId || state.teacherData.classes[0]?.class_id || null;
+  const assignments = state.teacherData.assignments || [];
+  const activeStillExists = assignments.some(
+    (item) => teacherAssignmentKey(item) === state.activeTeacherAssignmentKey,
+  );
+  state.activeTeacherAssignmentKey = activeStillExists
+    ? state.activeTeacherAssignmentKey
+    : teacherAssignmentKey(assignments[0]) || null;
   await loadTeacherDetail();
 }
 
+function teacherAssignmentKey(item) {
+  if (!item) {
+    return null;
+  }
+
+  return `${item.class_id}:${item.subject_id}`;
+}
+
 async function loadTeacherDetail() {
-  if (!state.activeTeacherClassId) {
+  if (!state.activeTeacherAssignmentKey) {
     state.teacherDetail = null;
     renderTeacher();
     return;
   }
 
-  state.teacherDetail = await api(`/api/teacher/classes/${state.activeTeacherClassId}`);
+  const [classId, subjectId] = state.activeTeacherAssignmentKey.split(":");
+  state.teacherDetail = await api(`/api/teacher/classes/${classId}/subjects/${subjectId}`);
   renderTeacher();
 }
 
 function renderTeacher() {
-  const classes = state.teacherData.classes || [];
+  const assignments = state.teacherData.assignments || [];
 
   app.innerHTML = `
     <div class="stack">
       <section class="panel">
         <div class="panel-header">
-          <h2>Lớp được phân công</h2>
-          <span class="badge">${classes.length} lớp</span>
+          <h2>Lớp - môn được phân công</h2>
+          <span class="badge">${assignments.length} phân công</span>
         </div>
         <div class="panel-body">
           ${
-            classes.length
-              ? `<div class="class-list">${classes.map(renderClassButton).join("")}</div>`
-              : `<div class="empty">Chưa có lớp được phân công.</div>`
+            assignments.length
+              ? `<div class="class-list">${assignments.map(renderAssignmentButton).join("")}</div>`
+              : `<div class="empty">Chưa có lớp - môn được phân công.</div>`
           }
         </div>
       </section>
@@ -325,9 +336,9 @@ function renderTeacher() {
     </div>
   `;
 
-  app.querySelectorAll("[data-class-id]").forEach((button) => {
+  app.querySelectorAll("[data-assignment-key]").forEach((button) => {
     button.addEventListener("click", async () => {
-      state.activeTeacherClassId = Number(button.dataset.classId);
+      state.activeTeacherAssignmentKey = button.dataset.assignmentKey;
       await loadTeacherDetail();
     });
   });
@@ -337,75 +348,41 @@ function renderTeacher() {
   });
 }
 
-function renderClassButton(item) {
-  const activeClass = item.class_id === state.activeTeacherClassId ? "active" : "";
+function renderAssignmentButton(item) {
+  const key = teacherAssignmentKey(item);
+  const isActive = key === state.activeTeacherAssignmentKey ? "active" : "";
+  const status = item.class_subject_status || item.status;
 
   return `
-    <button type="button" class="class-button ${activeClass}" data-class-id="${item.class_id}">
-      <strong>${formatValue(item.class_code)}</strong>
-      <span>${formatValue(item.major)}</span>
+    <button type="button" class="class-button ${isActive}" data-assignment-key="${escapeAttr(key)}">
+      <strong>${formatValue(item.class_code)} - ${formatValue(item.subject_name)}</strong>
+      <span>${formatValue(item.subject_code)}</span>
       <span>${formatValue(item.course)}</span>
-      <span>${item.student_count} học sinh, ${item.subject_count} môn</span>
+      <span>${formatValue(item.major)} - ${formatValue(item.education_level)}</span>
+      <span>${item.student_count} học sinh</span>
+      ${statusBadge(status)}
     </button>
   `;
 }
 
 function renderTeacherDetail(detail) {
-  const classInfo = detail.classInfo;
+  const assignment = detail.assignment;
 
   return `
     <section class="panel">
       <div class="panel-header">
-        <h2>${formatValue(classInfo.class_code)}</h2>
-        ${statusBadge(classInfo.status)}
+        <h2>${formatValue(assignment.class_code)} - ${formatValue(assignment.subject_name)}</h2>
+        ${statusBadge(assignment.class_subject_status)}
       </div>
       <div class="panel-body">
         <div class="profile-grid">
-          ${profileItem("Ngành", classInfo.major)}
-          ${profileItem("Bậc đào tạo", classInfo.education_level)}
-          ${profileItem("Khóa học", classInfo.course)}
-          ${profileItem("Giáo viên phụ trách", classInfo.homeroom_teacher_name)}
+          ${profileItem("Mã môn", assignment.subject_code)}
+          ${profileItem("Ngành", assignment.major)}
+          ${profileItem("Bậc đào tạo", assignment.education_level)}
+          ${profileItem("Khóa học", assignment.course)}
         </div>
       </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <h3>Học sinh trong lớp</h3>
-        <span class="badge">${detail.students.length} học sinh</span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Mã học sinh</th>
-              <th>Họ tên</th>
-              <th>Ngày sinh</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              detail.students.length
-                ? detail.students
-                    .map(
-                      (student) => `
-                        <tr>
-                          <td>${formatValue(student.student_code)}</td>
-                          <td><strong>${formatValue(student.full_name)}</strong></td>
-                          <td>${formatDate(student.date_of_birth)}</td>
-                        </tr>
-                      `,
-                    )
-                    .join("")
-                : `<tr><td colspan="3" class="empty">Chưa có học sinh trong lớp.</td></tr>`
-            }
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
+      <div class="panel-header panel-subheader">
         <h3>Điểm học sinh</h3>
         <span class="badge">${detail.scores.length} dòng điểm</span>
       </div>
@@ -414,7 +391,6 @@ function renderTeacherDetail(detail) {
           <thead>
             <tr>
               <th>Học sinh</th>
-              <th>Môn</th>
               <th>KTTX 1</th>
               <th>KTTX 2</th>
               <th>KTĐK 1</th>
@@ -429,7 +405,7 @@ function renderTeacherDetail(detail) {
             ${
               detail.scores.length
                 ? detail.scores.map(renderTeacherScoreRow).join("")
-                : `<tr><td colspan="10" class="empty">Chưa có dữ liệu điểm.</td></tr>`
+                : `<tr><td colspan="9" class="empty">Chưa có dữ liệu điểm.</td></tr>`
             }
           </tbody>
         </table>
@@ -466,10 +442,6 @@ function renderTeacherScoreRow(score) {
       <td>
         <strong>${formatValue(score.studentName)}</strong><br />
         ${formatValue(score.studentCode)}
-      </td>
-      <td>
-        <strong>${formatValue(score.subjectName)}</strong><br />
-        ${formatValue(score.subjectCode)}
       </td>
       ${scoreCells}
       <td><strong>${formatScore(score.finalScore)}</strong></td>
@@ -518,6 +490,7 @@ async function loadManagement(view = state.managementView) {
 function managementNavItems() {
   const items = [
     { id: "overview", label: "Tổng quan" },
+    { id: "programs", label: "Ngành học" },
     { id: "classes", label: "Lớp học" },
     { id: "students", label: "Học sinh" },
     { id: "teachers", label: "Giáo viên" },
@@ -563,6 +536,7 @@ function renderSummary(counts) {
           ${summaryItem("Học sinh", counts.students)}
           ${summaryItem("Lớp học", counts.classes)}
           ${summaryItem("Môn học", counts.subjects)}
+          ${summaryItem("Ngành học", counts.programs)}
         </div>
       </div>
     </section>
@@ -585,6 +559,10 @@ function renderManagementContent() {
 
   if (state.managementView === "classes") {
     return renderClassManagement();
+  }
+
+  if (state.managementView === "programs") {
+    return renderProgramManagement();
   }
 
   if (state.managementView === "students") {
@@ -616,6 +594,7 @@ function renderOverviewTables() {
               <th>Thứ tự</th>
               <th>Mã môn</th>
               <th>Tên môn</th>
+              <th>Chương trình</th>
               <th>Số tiết</th>
             </tr>
           </thead>
@@ -627,6 +606,7 @@ function renderOverviewTables() {
                     <td>${formatValue(subject.subject_order)}</td>
                     <td>${formatValue(subject.subject_code)}</td>
                     <td><strong>${formatValue(subject.subject_name)}</strong></td>
+                    <td>${formatValue(subject.major)} - ${formatValue(subject.education_level)}</td>
                     <td>${formatValue(subject.period)}</td>
                   </tr>
                 `,
@@ -636,6 +616,65 @@ function renderOverviewTables() {
         </table>
       </div>
     </section>
+  `;
+}
+
+function renderProgramManagement() {
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Thêm ngành học</h2>
+      </div>
+      <div class="panel-body">
+        <form class="form-grid" id="createProgramForm">
+          ${field("major", "Ngành học", "Cong nghe thong tin")}
+          ${field("educationLevel", "Bậc đào tạo", "Trung cap")}
+          <div class="form-actions">
+            <button type="submit" class="button button-primary">Thêm</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Danh sách ngành học</h2>
+        <span class="badge">${state.managementData.programs.length} dòng</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ngành học</th>
+              <th>Bậc đào tạo</th>
+              <th>Lớp</th>
+              <th>Môn</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.managementData.programs.map(renderProgramEditRow).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderProgramEditRow(program) {
+  return `
+    <tr data-id="${program.id}">
+      <td><input class="table-input" data-field="major" value="${escapeAttr(program.major)}" /></td>
+      <td><input class="table-input" data-field="educationLevel" value="${escapeAttr(program.education_level)}" /></td>
+      <td>${formatValue(program.classes_count || 0)}</td>
+      <td>${formatValue(program.subjects_count || 0)}</td>
+      <td>
+        <div class="row-actions">
+          <button type="button" class="button button-muted" data-action="save-program">Lưu</button>
+          <button type="button" class="button button-danger" data-action="delete-program">Xóa</button>
+        </div>
+      </td>
+    </tr>
   `;
 }
 
@@ -649,7 +688,6 @@ function renderAcademicManagement() {
         <form class="form-grid" id="createAcademicForm">
           ${field("username", "Tài khoản", "academic003")}
           ${field("password", "Mật khẩu", "123456", "password")}
-          ${field("staffCode", "Mã giáo vụ", "GVU003")}
           ${field("fullName", "Họ tên", "Nguyen Van A")}
           ${field("phone", "Số điện thoại", "0912000003", "tel", false)}
           ${field("email", "Email", "academic003@example.com", "email", false)}
@@ -669,7 +707,6 @@ function renderAcademicManagement() {
         <table>
           <thead>
             <tr>
-              <th>Mã giáo vụ</th>
               <th>Họ tên</th>
               <th>Tài khoản</th>
               <th>Trạng thái</th>
@@ -691,7 +728,6 @@ function renderAcademicManagement() {
 function renderAcademicEditRow(item) {
   return `
     <tr data-id="${item.id}">
-      <td><input class="table-input" data-field="staffCode" value="${escapeAttr(item.staff_code)}" /></td>
       <td><input class="table-input" data-field="fullName" value="${escapeAttr(item.full_name)}" /></td>
       <td><input class="table-input" data-field="username" value="${escapeAttr(item.username)}" /></td>
       <td>
@@ -722,7 +758,7 @@ function renderTeacherManagement() {
         <form class="form-grid" id="createTeacherForm">
           ${field("username", "Tài khoản", "teacher005")}
           ${field("password", "Mật khẩu", "123456", "password")}
-          ${field("teacherCode", "Mã giáo viên", "GV005")}
+          ${field("contractType", "Loại hợp đồng", "Giáo viên cơ hữu")}
           ${field("fullName", "Họ tên", "Tran Van B")}
           ${field("phone", "Số điện thoại", "0901000005", "tel", false)}
           ${field("email", "Email", "teacher005@example.com", "email", false)}
@@ -743,7 +779,7 @@ function renderTeacherManagement() {
         <table>
           <thead>
             <tr>
-              <th>Mã</th>
+              <th>Loại hợp đồng</th>
               <th>Họ tên</th>
               <th>Tài khoản</th>
               <th>Trạng thái</th>
@@ -766,7 +802,7 @@ function renderTeacherManagement() {
 function renderTeacherEditRow(teacher) {
   return `
     <tr data-id="${teacher.id}">
-      <td><input class="table-input" data-field="teacherCode" value="${escapeAttr(teacher.teacher_code)}" /></td>
+      <td><input class="table-input" data-field="contractType" value="${escapeAttr(teacher.contract_type)}" /></td>
       <td><input class="table-input" data-field="fullName" value="${escapeAttr(teacher.full_name)}" /></td>
       <td><input class="table-input" data-field="username" value="${escapeAttr(teacher.username || "")}" /></td>
       <td>
@@ -876,10 +912,7 @@ function renderClassManagement() {
           ${field("classCode", "Mã lớp", "CNTT-K49")}
           ${field("schoolYearStart", "Năm bắt đầu", "2027", "number")}
           ${field("schoolYearEnd", "Năm kết thúc", "2029", "number")}
-          ${field("major", "Ngành", "Cong nghe thong tin")}
-          ${field("educationLevel", "Bậc đào tạo", "Trung cap")}
-          ${selectField("status", "Trạng thái", statusOptions())}
-          ${selectField("homeroomTeacherId", "Giáo viên phụ trách", teacherOptions())}
+          ${selectField("programId", "Chương trình", programOptions())}
           <div class="form-actions">
             <button type="submit" class="button button-primary">Thêm</button>
           </div>
@@ -899,10 +932,7 @@ function renderClassManagement() {
               <th>Mã lớp</th>
               <th>Năm bắt đầu</th>
               <th>Năm kết thúc</th>
-              <th>Ngành</th>
-              <th>Bậc</th>
-              <th>Trạng thái</th>
-              <th>GVCN</th>
+              <th>Chương trình</th>
               <th></th>
             </tr>
           </thead>
@@ -921,16 +951,9 @@ function renderClassEditRow(item) {
       <td><input class="table-input" data-field="classCode" value="${escapeAttr(item.class_code)}" /></td>
       <td><input class="table-input" type="number" data-field="schoolYearStart" value="${escapeAttr(item.school_year_start)}" /></td>
       <td><input class="table-input" type="number" data-field="schoolYearEnd" value="${escapeAttr(item.school_year_end)}" /></td>
-      <td><input class="table-input" data-field="major" value="${escapeAttr(item.major)}" /></td>
-      <td><input class="table-input" data-field="educationLevel" value="${escapeAttr(item.education_level)}" /></td>
       <td>
-        <select class="table-input" data-field="status">
-          ${statusOptions(item.status)}
-        </select>
-      </td>
-      <td>
-        <select class="table-input" data-field="homeroomTeacherId">
-          ${teacherOptions(item.homeroom_teacher_id)}
+        <select class="table-input" data-field="programId">
+          ${programOptions(item.program_id)}
         </select>
       </td>
       <td>
@@ -1021,25 +1044,18 @@ function classOptions(selected = "") {
   `;
 }
 
-function teacherOptions(selected = "") {
+function programOptions(selected = "") {
   return `
-    <option value="">Chưa phân công</option>
-    ${state.managementData.teachers
+    <option value="">Chọn ngành học</option>
+    ${state.managementData.programs
       .map(
         (item) => `
           <option value="${item.id}" ${String(item.id) === String(selected) ? "selected" : ""}>
-            ${formatValue(item.teacher_code)} - ${formatValue(item.full_name)}
+            ${formatValue(item.major)} - ${formatValue(item.education_level)}
           </option>
         `,
       )
       .join("")}
-  `;
-}
-
-function statusOptions(selected = "open") {
-  return `
-    <option value="open" ${selected === "open" ? "selected" : ""}>Đang mở</option>
-    <option value="closed" ${selected === "closed" ? "selected" : ""}>Đã đóng</option>
   `;
 }
 
@@ -1127,6 +1143,15 @@ function attachManagementEvents() {
     await loadManagement("classes");
   });
 
+  bindForm("createProgramForm", async (form) => {
+    await api("/api/management/programs", {
+      method: "POST",
+      body: formToObject(form),
+    });
+    showToast("Đã thêm ngành học.");
+    await loadManagement("programs");
+  });
+
   app.querySelectorAll("[data-action='save-academic']").forEach((button) => {
     button.addEventListener("click", async () => {
       const { id, payload } = collectRowPayload(button);
@@ -1177,6 +1202,36 @@ function attachManagementEvents() {
         "DELETE",
         null,
         "Đã xóa giáo viên.",
+      );
+    });
+  });
+
+  app.querySelectorAll("[data-action='save-program']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const { id, payload } = collectRowPayload(button);
+      await runManagementAction(
+        button,
+        `/api/management/programs/${id}`,
+        "PUT",
+        payload,
+        "Đã lưu ngành học.",
+      );
+    });
+  });
+
+  app.querySelectorAll("[data-action='delete-program']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm("Xóa ngành học này?")) {
+        return;
+      }
+
+      const { id } = collectRowPayload(button);
+      await runManagementAction(
+        button,
+        `/api/management/programs/${id}`,
+        "DELETE",
+        null,
+        "Đã xóa ngành học.",
       );
     });
   });
