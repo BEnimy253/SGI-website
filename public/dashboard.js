@@ -24,6 +24,14 @@ const roleTitles = {
   student: "Bảng điểm học sinh",
 };
 
+function isAdmin() {
+  return state.me?.account?.role === "admin";
+}
+
+function isAcademicExecutor() {
+  return state.me?.account?.role === "academic_executor";
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -57,6 +65,14 @@ function formatDate(value) {
   }
 
   return `${day}/${month}/${year}`;
+}
+
+function formatCourse(item) {
+  if (!item?.school_year_start || !item?.school_year_end) {
+    return missingText;
+  }
+
+  return `${item.school_year_start} - ${item.school_year_end}`;
 }
 
 function formatScore(value, fallback = missingText) {
@@ -483,25 +499,32 @@ async function saveScore(button) {
 
 async function loadManagement(view = state.managementView) {
   state.managementData = await api("/api/management/overview");
-  state.managementView = view;
+  const items = managementNavItems();
+  state.managementView = items.some((item) => item.id === view) ? view : items[0]?.id || "overview";
   renderManagement();
 }
 
 function managementNavItems() {
-  const items = [
+  if (isAcademicExecutor()) {
+    return [
+      { id: "assignments", label: "Phân công" },
+      { id: "students", label: "Học sinh" },
+      { id: "teachers", label: "Giáo viên" },
+      { id: "accounts", label: "Tài khoản" },
+    ];
+  }
+
+  return [
     { id: "overview", label: "Tổng quan" },
+    { id: "academic", label: "Giáo vụ" },
     { id: "programs", label: "Ngành học" },
+    { id: "subjects", label: "Môn học" },
     { id: "classes", label: "Lớp học" },
+    { id: "assignments", label: "Phân công" },
     { id: "students", label: "Học sinh" },
     { id: "teachers", label: "Giáo viên" },
     { id: "accounts", label: "Tài khoản" },
   ];
-
-  if (state.me.account.role === "admin") {
-    items.splice(1, 0, { id: "academic", label: "Giáo vụ" });
-  }
-
-  return items;
 }
 
 function renderManagement() {
@@ -514,7 +537,7 @@ function renderManagement() {
 
   app.innerHTML = `
     <div class="stack">
-      ${renderSummary(data.counts)}
+      ${isAdmin() ? renderSummary(data.counts) : ""}
       ${renderManagementContent()}
     </div>
   `;
@@ -553,6 +576,10 @@ function summaryItem(label, value) {
 }
 
 function renderManagementContent() {
+  if (state.managementView === "assignments") {
+    return renderAssignmentManagement();
+  }
+
   if (state.managementView === "academic") {
     return renderAcademicManagement();
   }
@@ -563,6 +590,10 @@ function renderManagementContent() {
 
   if (state.managementView === "programs") {
     return renderProgramManagement();
+  }
+
+  if (state.managementView === "subjects") {
+    return renderSubjectManagement();
   }
 
   if (state.managementView === "students") {
@@ -672,6 +703,74 @@ function renderProgramEditRow(program) {
         <div class="row-actions">
           <button type="button" class="button button-muted" data-action="save-program">Lưu</button>
           <button type="button" class="button button-danger" data-action="delete-program">Xóa</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderSubjectManagement() {
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Thêm môn học</h2>
+      </div>
+      <div class="panel-body">
+        <form class="form-grid" id="createSubjectForm">
+          ${selectField("programId", "Chương trình", programOptions())}
+          ${field("subjectCode", "Mã môn", "CSDL")}
+          ${field("subjectOrder", "Thứ tự", "1", "number")}
+          ${field("subjectName", "Tên môn", "Cơ sở dữ liệu")}
+          ${field("period", "Số tiết", "60", "number")}
+          <div class="form-actions">
+            <button type="submit" class="button button-primary">Thêm</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Danh sách môn học</h2>
+        <span class="badge">${state.managementData.subjects.length} dòng</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Chương trình</th>
+              <th>Thứ tự</th>
+              <th>Mã môn</th>
+              <th>Tên môn</th>
+              <th>Số tiết</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.managementData.subjects.map(renderSubjectEditRow).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderSubjectEditRow(subject) {
+  return `
+    <tr data-id="${subject.id}">
+      <td>
+        <select class="table-input" data-field="programId">
+          ${programOptions(subject.program_id)}
+        </select>
+      </td>
+      <td><input class="table-input" type="number" data-field="subjectOrder" value="${escapeAttr(subject.subject_order)}" /></td>
+      <td><input class="table-input" data-field="subjectCode" value="${escapeAttr(subject.subject_code)}" /></td>
+      <td><input class="table-input" data-field="subjectName" value="${escapeAttr(subject.subject_name)}" /></td>
+      <td><input class="table-input" type="number" data-field="period" value="${escapeAttr(subject.period)}" /></td>
+      <td>
+        <div class="row-actions">
+          <button type="button" class="button button-muted" data-action="save-subject">Lưu</button>
+          <button type="button" class="button button-danger" data-action="delete-subject">Xóa</button>
         </div>
       </td>
     </tr>
@@ -966,6 +1065,70 @@ function renderClassEditRow(item) {
   `;
 }
 
+function renderAssignmentManagement() {
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Phân công giáo viên</h2>
+        <span class="badge">${state.managementData.classSubjects.length} dòng</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Lớp</th>
+              <th>Môn học</th>
+              <th>Giáo viên</th>
+              <th>Trạng thái</th>
+              <th>Ngày mở</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              state.managementData.classSubjects.length
+                ? state.managementData.classSubjects.map(renderAssignmentEditRow).join("")
+                : `<tr><td colspan="6" class="empty">Chưa có lớp-môn để phân công.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderAssignmentEditRow(item) {
+  return `
+    <tr data-class-id="${item.class_id}" data-subject-id="${item.subject_id}">
+      <td>
+        <strong>${formatValue(item.class_code)}</strong><br />
+        ${formatValue(item.major)} - ${formatValue(item.education_level)}<br />
+        ${formatValue(formatCourse(item))}
+      </td>
+      <td>
+        <strong>${formatValue(item.subject_name)}</strong><br />
+        ${formatValue(item.subject_code)} - ${formatValue(item.period)} tiết
+      </td>
+      <td>
+        <select class="table-input" data-field="teacherId">
+          ${teacherOptions(item.teacher_id)}
+        </select>
+      </td>
+      <td>
+        <select class="table-input" data-field="status">
+          ${classSubjectStatusOptions(item.status)}
+        </select>
+      </td>
+      <td><input class="table-input" type="date" data-field="openedAt" value="${escapeAttr(item.opened_at || "")}" /></td>
+      <td>
+        <div class="row-actions">
+          <button type="button" class="button button-muted" data-action="save-assignment">Lưu</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function renderAccountsTable() {
   return `
     <section class="panel">
@@ -1056,6 +1219,30 @@ function programOptions(selected = "") {
         `,
       )
       .join("")}
+  `;
+}
+
+function teacherOptions(selected = "") {
+  return `
+    <option value="">Chưa phân công</option>
+    ${state.managementData.teachers
+      .map(
+        (teacher) => `
+          <option value="${teacher.id}" ${String(teacher.id) === String(selected) ? "selected" : ""}>
+            ${formatValue(teacher.full_name)}
+          </option>
+        `,
+      )
+      .join("")}
+  `;
+}
+
+function classSubjectStatusOptions(selected = "closed") {
+  const status = selected || "closed";
+
+  return `
+    <option value="closed" ${status === "closed" ? "selected" : ""}>Đã đóng</option>
+    <option value="open" ${status === "open" ? "selected" : ""}>Đang mở</option>
   `;
 }
 
@@ -1152,6 +1339,15 @@ function attachManagementEvents() {
     await loadManagement("programs");
   });
 
+  bindForm("createSubjectForm", async (form) => {
+    await api("/api/management/subjects", {
+      method: "POST",
+      body: formToObject(form),
+    });
+    showToast("Đã thêm môn học.");
+    await loadManagement("subjects");
+  });
+
   app.querySelectorAll("[data-action='save-academic']").forEach((button) => {
     button.addEventListener("click", async () => {
       const { id, payload } = collectRowPayload(button);
@@ -1236,6 +1432,36 @@ function attachManagementEvents() {
     });
   });
 
+  app.querySelectorAll("[data-action='save-subject']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const { id, payload } = collectRowPayload(button);
+      await runManagementAction(
+        button,
+        `/api/management/subjects/${id}`,
+        "PUT",
+        payload,
+        "Đã lưu môn học.",
+      );
+    });
+  });
+
+  app.querySelectorAll("[data-action='delete-subject']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm("Xóa môn học này? Các phân công và điểm của môn này cũng sẽ bị xóa.")) {
+        return;
+      }
+
+      const { id } = collectRowPayload(button);
+      await runManagementAction(
+        button,
+        `/api/management/subjects/${id}`,
+        "DELETE",
+        null,
+        "Đã xóa môn học.",
+      );
+    });
+  });
+
   app.querySelectorAll("[data-action='save-student']").forEach((button) => {
     button.addEventListener("click", async () => {
       const { id, payload } = collectRowPayload(button);
@@ -1271,6 +1497,25 @@ function attachManagementEvents() {
       await runManagementAction(button, `/api/management/classes/${id}`, "DELETE", null, "Đã xóa lớp.");
     });
   });
+
+  app.querySelectorAll("[data-action='save-assignment']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const payload = {};
+
+      row.querySelectorAll("[data-field]").forEach((input) => {
+        payload[input.dataset.field] = input.value;
+      });
+
+      await runManagementAction(
+        button,
+        `/api/management/class-subjects/${row.dataset.classId}/${row.dataset.subjectId}`,
+        "PUT",
+        payload,
+        "Đã lưu phân công.",
+      );
+    });
+  });
 }
 
 async function runManagementAction(button, path, method, body, successMessage) {
@@ -1303,11 +1548,12 @@ async function init() {
     }
 
     if (state.me.account.role === "admin" || state.me.account.role === "academic_executor") {
+      state.managementView = isAcademicExecutor() ? "assignments" : "overview";
       setSidebar(managementNavItems(), state.managementView, (view) => {
         state.managementView = view;
         renderManagement();
       });
-      await loadManagement("overview");
+      await loadManagement(state.managementView);
       return;
     }
 

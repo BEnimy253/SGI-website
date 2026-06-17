@@ -16,6 +16,7 @@ const ROLE_LABELS = {
 };
 
 const ACCOUNT_STATUSES = new Set(["active", "inactive", "locked"]);
+const CLASS_SUBJECT_STATUSES = new Set(["open", "closed"]);
 const SCORE_FIELDS = ["kttx1", "kttx2", "ktdk1", "ktdk2", "ktm1", "ktm2"];
 
 app.set("trust proxy", 1);
@@ -151,6 +152,26 @@ function parseSchoolYear(value, fieldName) {
   return number;
 }
 
+function parseSubjectOrder(value) {
+  const number = Number(value);
+
+  if (!Number.isInteger(number) || number < 1 || number > 26) {
+    throw createHttpError(400, "Thứ tự môn học phải từ 1 đến 26.");
+  }
+
+  return number;
+}
+
+function parsePeriod(value) {
+  const number = Number(value);
+
+  if (!Number.isInteger(number) || number <= 0) {
+    throw createHttpError(400, "Số tiết phải lớn hơn 0.");
+  }
+
+  return number;
+}
+
 function parseScore(value, fieldName) {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -163,6 +184,16 @@ function parseScore(value, fieldName) {
   }
 
   return Number(number.toFixed(1));
+}
+
+function parseClassSubjectStatus(value) {
+  const status = String(value ?? "closed").trim();
+
+  if (!CLASS_SUBJECT_STATUSES.has(status)) {
+    throw createHttpError(400, "Trạng thái phân công không hợp lệ.");
+  }
+
+  return status;
 }
 
 function parseAccountStatus(value) {
@@ -403,7 +434,7 @@ async function getCurrentUser(client, accountId) {
   };
 }
 
-async function getManagementOverview(client) {
+async function getManagementOverview(client, role = "admin") {
   const countsResult = await client.query(
     `
     select
@@ -533,10 +564,15 @@ async function getManagementOverview(client) {
     select
       cs.class_id,
       c.class_code,
+      c.school_year_start,
+      c.school_year_end,
+      c.major,
+      c.education_level,
       cs.subject_id,
       s.subject_code,
       s.subject_name,
       s.subject_order,
+      s.period,
       cs.status,
       cs.opened_at,
       cs.teacher_id,
@@ -571,16 +607,23 @@ async function getManagementOverview(client) {
     `,
   );
 
+  const canManageAll = role === "admin";
+  const canManagePeople = canManageAll || role === "academic_executor";
+
   return {
     counts: countsResult.rows[0],
-    accounts: accountsResult.rows.map(mapAccount),
-    academicExecutors: academicsResult.rows,
+    accounts: canManageAll
+      ? accountsResult.rows.map(mapAccount)
+      : accountsResult.rows
+          .filter((account) => account.role === "teacher" || account.role === "student")
+          .map(mapAccount),
+    academicExecutors: canManageAll ? academicsResult.rows : [],
     teachers: teachersResult.rows,
     classes: classesResult.rows,
-    students: studentsResult.rows,
+    students: canManagePeople ? studentsResult.rows : [],
     subjects: subjectsResult.rows,
     classSubjects: classSubjectsResult.rows,
-    programs: programsResult.rows,
+    programs: canManageAll ? programsResult.rows : [],
   };
 }
 
@@ -961,7 +1004,9 @@ app.get(
   "/api/management/overview",
   requireRole("admin", "academic_executor"),
   asyncRoute(async (req, res) => {
-    const data = await withAppContext(req, (client) => getManagementOverview(client));
+    const data = await withAppContext(req, (client) =>
+      getManagementOverview(client, req.session.role),
+    );
     res.json(data);
   }),
 );
@@ -1231,7 +1276,25 @@ app.post(
         ],
       );
 
-      return result.rows[0];
+      const account = result.rows[0];
+      const studentResult = await client.query(
+        `
+        select id
+        from public.students
+        where user_id = $1
+        limit 1
+        `,
+        [account.account_id],
+      );
+      const student = studentResult.rows[0];
+
+      if (!student) {
+        throw createHttpError(500, "Không thể khởi tạo hồ sơ học sinh.");
+      }
+
+      await client.query("select public.sync_student_scores($1)", [student.id]);
+
+      return account;
     });
 
     res.status(201).json(data);
@@ -1284,7 +1347,10 @@ app.put(
         ],
       );
 
-      return result.rows[0];
+      const updatedStudent = result.rows[0];
+      await client.query("select public.sync_student_scores($1)", [updatedStudent.id]);
+
+      return updatedStudent;
     });
 
     res.json(data);
@@ -1324,7 +1390,7 @@ app.delete(
 
 app.post(
   "/api/management/programs",
-  requireRole("admin", "academic_executor"),
+  requireRole("admin"),
   asyncRoute(async (req, res) => {
     const body = req.body;
     const data = await withAppContext(req, async (client) => {
@@ -1352,7 +1418,7 @@ app.post(
 
 app.put(
   "/api/management/programs/:programId",
-  requireRole("admin", "academic_executor"),
+  requireRole("admin"),
   asyncRoute(async (req, res) => {
     const programId = parseId(req.params.programId, "Mã ngành học");
     const body = req.body;
@@ -1387,7 +1453,7 @@ app.put(
 
 app.delete(
   "/api/management/programs/:programId",
-  requireRole("admin", "academic_executor"),
+  requireRole("admin"),
   asyncRoute(async (req, res) => {
     const programId = parseId(req.params.programId, "Mã ngành học");
     const data = await withAppContext(req, async (client) => {
@@ -1429,8 +1495,259 @@ app.delete(
 );
 
 app.post(
-  "/api/management/classes",
+  "/api/management/subjects",
+  requireRole("admin"),
+  asyncRoute(async (req, res) => {
+    const body = req.body;
+    const data = await withAppContext(req, async (client) => {
+      const result = await client.query(
+        `
+        with new_subject as (
+          insert into public.subjects (
+            program_id,
+            subject_code,
+            subject_order,
+            subject_name,
+            period
+          )
+          values ($1, $2, $3, $4, $5)
+          returning id, program_id
+        ),
+        inserted_class_subjects as (
+          insert into public.class_subjects (
+            class_id,
+            subject_id,
+            status
+          )
+          select
+            c.id,
+            ns.id,
+            'closed'
+          from new_subject ns
+          join public.classes c
+            on c.program_id = ns.program_id
+          on conflict (class_id, subject_id) do nothing
+          returning class_id
+        ),
+        inserted_scores as (
+          insert into public.student_scores (
+            student_id,
+            subject_id
+          )
+          select
+            st.id,
+            ns.id
+          from new_subject ns
+          join public.classes c
+            on c.program_id = ns.program_id
+          join public.students st
+            on st.class_id = c.id
+          on conflict (student_id, subject_id) do nothing
+          returning student_id
+        )
+        select id
+        from new_subject
+        `,
+        [
+          parseId(body.programId, "Chương trình đào tạo"),
+          requiredText(body.subjectCode, "Mã môn học"),
+          parseSubjectOrder(body.subjectOrder),
+          requiredText(body.subjectName, "Tên môn học"),
+          parsePeriod(body.period),
+        ],
+      );
+
+      return result.rows[0];
+    });
+
+    res.status(201).json(data);
+  }),
+);
+
+app.put(
+  "/api/management/subjects/:subjectId",
+  requireRole("admin"),
+  asyncRoute(async (req, res) => {
+    const subjectId = parseId(req.params.subjectId, "Mã môn học");
+    const body = req.body;
+    const data = await withAppContext(req, async (client) => {
+      const currentResult = await client.query(
+        `
+        select program_id
+        from public.subjects
+        where id = $1
+        limit 1
+        `,
+        [subjectId],
+      );
+      const current = currentResult.rows[0];
+
+      if (!current) {
+        throw createHttpError(404, "Không tìm thấy môn học.");
+      }
+
+      const nextProgramId = parseId(body.programId, "Chương trình đào tạo");
+
+      if (Number(current.program_id) !== nextProgramId) {
+        const usageResult = await client.query(
+          `
+          select
+            (select count(*)::int from public.class_subjects where subject_id = $1) as class_subjects,
+            (select count(*)::int from public.student_scores where subject_id = $1) as scores
+          `,
+          [subjectId],
+        );
+        const usage = usageResult.rows[0];
+
+        if (usage.class_subjects > 0 || usage.scores > 0) {
+          throw createHttpError(
+            400,
+            "Không thể chuyển chương trình của môn học đang được dùng trong lớp hoặc bảng điểm.",
+          );
+        }
+      }
+
+      const result = await client.query(
+        `
+        update public.subjects
+        set
+          program_id = $1,
+          subject_code = $2,
+          subject_order = $3,
+          subject_name = $4,
+          period = $5
+        where id = $6
+        returning id, program_id
+        `,
+        [
+          nextProgramId,
+          requiredText(body.subjectCode, "Mã môn học"),
+          parseSubjectOrder(body.subjectOrder),
+          requiredText(body.subjectName, "Tên môn học"),
+          parsePeriod(body.period),
+          subjectId,
+        ],
+      );
+
+      const subject = result.rows[0];
+
+      await client.query(
+        `
+        insert into public.class_subjects (
+          class_id,
+          subject_id,
+          status
+        )
+        select
+          c.id,
+          $1,
+          'closed'
+        from public.classes c
+        where c.program_id = $2
+        on conflict (class_id, subject_id) do nothing
+        `,
+        [subject.id, subject.program_id],
+      );
+
+      await client.query(
+        `
+        insert into public.student_scores (
+          student_id,
+          subject_id
+        )
+        select
+          st.id,
+          $1
+        from public.students st
+        join public.classes c
+          on c.id = st.class_id
+        where c.program_id = $2
+        on conflict (student_id, subject_id) do nothing
+        `,
+        [subject.id, subject.program_id],
+      );
+
+      return { id: subject.id };
+    });
+
+    res.json(data);
+  }),
+);
+
+app.delete(
+  "/api/management/subjects/:subjectId",
+  requireRole("admin"),
+  asyncRoute(async (req, res) => {
+    const subjectId = parseId(req.params.subjectId, "Mã môn học");
+    const data = await withAppContext(req, async (client) => {
+      const result = await client.query(
+        `
+        delete from public.subjects
+        where id = $1
+        returning id
+        `,
+        [subjectId],
+      );
+
+      if (!result.rows[0]) {
+        throw createHttpError(404, "Không tìm thấy môn học.");
+      }
+
+      return result.rows[0];
+    });
+
+    res.json(data);
+  }),
+);
+
+app.put(
+  "/api/management/class-subjects/:classId/:subjectId",
   requireRole("admin", "academic_executor"),
+  asyncRoute(async (req, res) => {
+    const classId = parseId(req.params.classId, "Mã lớp");
+    const subjectId = parseId(req.params.subjectId, "Mã môn học");
+    const body = req.body;
+    const data = await withAppContext(req, async (client) => {
+      const teacherId = parseOptionalId(body.teacherId, "Mã giáo viên");
+      const status = parseClassSubjectStatus(body.status);
+
+      if (status === "open" && !teacherId) {
+        throw createHttpError(400, "Cần chọn giáo viên khi mở lớp-môn.");
+      }
+
+      const openedAt =
+        status === "open"
+          ? optionalDate(body.openedAt) ?? new Date().toISOString().slice(0, 10)
+          : null;
+
+      const result = await client.query(
+        `
+        update public.class_subjects
+        set
+          teacher_id = $1,
+          status = $2,
+          opened_at = $3
+        where class_id = $4
+          and subject_id = $5
+        returning class_id, subject_id
+        `,
+        [teacherId, status, openedAt, classId, subjectId],
+      );
+
+      if (!result.rows[0]) {
+        throw createHttpError(404, "Không tìm thấy lớp-môn cần phân công.");
+      }
+
+      return result.rows[0];
+    });
+
+    res.json(data);
+  }),
+);
+
+app.post(
+  "/api/management/classes",
+  requireRole("admin"),
   asyncRoute(async (req, res) => {
     const body = req.body;
     const data = await withAppContext(req, async (client) => {
@@ -1496,7 +1813,7 @@ app.post(
 
 app.put(
   "/api/management/classes/:classId",
-  requireRole("admin", "academic_executor"),
+  requireRole("admin"),
   asyncRoute(async (req, res) => {
     const classId = parseId(req.params.classId, "Mã lớp");
     const body = req.body;
@@ -1539,7 +1856,7 @@ app.put(
 
 app.delete(
   "/api/management/classes/:classId",
-  requireRole("admin", "academic_executor"),
+  requireRole("admin"),
   asyncRoute(async (req, res) => {
     const classId = parseId(req.params.classId, "Mã lớp");
     const data = await withAppContext(req, async (client) => {
