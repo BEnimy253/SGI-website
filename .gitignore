@@ -3,3 +3,4 @@ node_modules
 MVC/database/*
 !MVC/database/create-db.sql
 !MVC/database/update-gradebook-periods.sql
+AGENTS.md
