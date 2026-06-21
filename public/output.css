@@ -160,8 +160,14 @@
   }
 }
 @layer utilities {
+  .block {
+    display: block;
+  }
   .hidden {
     display: none;
+  }
+  .table {
+    display: table;
   }
   .border {
     border-style: var(--tw-border-style);

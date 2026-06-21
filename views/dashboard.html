@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="/dashboard.css" />
     <script src="/dashboard.js" defer></script>
   </head>
-
   <body>
     <header class="topbar">
       <div class="brand">
@@ -17,9 +16,11 @@
           <h1 id="pageTitle">Đang tải...</h1>
         </div>
       </div>
-
       <div class="account-box">
-        <span id="accountName">...</span>
+        <div>
+          <strong id="accountName">...</strong>
+          <small id="accountMeta"></small>
+        </div>
         <form action="/logout" method="POST">
           <button type="submit" class="button button-accent">Đăng xuất</button>
         </form>
