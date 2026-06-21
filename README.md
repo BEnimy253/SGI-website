@@ -125,32 +125,41 @@ Các quy tắc này được thực thi bằng trigger PostgreSQL, không chỉ 
 
 ```text
 SGI-website/
-├── database/
-│   ├── create-db.sql       # Xóa schema cũ, tạo schema mới và seed data
-│   └── update-gradebook-periods.sql
-│                           # Migration bảo toàn dữ liệu cho bảng điểm theo tiết
-├── public/
-│   ├── dashboard.css
-│   ├── dashboard.js
-│   └── LogoSGI.png
-├── src/
-│   ├── objects/
+├── MVC/
+│   ├── app.js
+│   ├── assets/
+│   │   └── css/
+│   │       └── input.css
+│   ├── controllers/
 │   │   ├── account/
-│   │   ├── core/
-│   │   ├── db/
 │   │   ├── gradebook/
 │   │   ├── management/
 │   │   ├── page/
-│   │   ├── route/
 │   │   ├── student/
 │   │   ├── system/
 │   │   ├── teacher/
-│   │   ├── user/
-│   │   └── app.js
-│   └── server.js
-├── views/
-│   ├── dashboard.html
-│   └── login.html
+│   │   └── user/
+│   ├── database/
+│   │   ├── create-db.sql
+│   │   └── update-gradebook-periods.sql
+│   ├── middleware/
+│   │   └── session.js
+│   ├── models/
+│   │   ├── account/
+│   │   └── db/
+│   ├── public/
+│   │   ├── css/
+│   │   ├── images/
+│   │   └── js/
+│   ├── routes/
+│   │   └── route.js
+│   ├── utils/
+│   │   ├── http.js
+│   │   ├── presenter.js
+│   │   └── values.js
+│   └── views/
+│       ├── dashboard.html
+│       └── login.html
 ├── package.json
 └── README.md
 ```
@@ -173,7 +182,7 @@ Không commit `.env`.
 
 ## Khởi tạo database
 
-> Cảnh báo: `database/create-db.sql` chạy
+> Cảnh báo: `MVC/database/create-db.sql` chạy
 > `drop schema if exists public cascade`, toàn bộ dữ liệu cũ trong schema
 > `public` sẽ bị xóa.
 
@@ -255,9 +264,9 @@ Mật khẩu chung: `123456`
 ## Kiểm tra nhanh
 
 ```bash
-node --check src/server.js
-node --check public/dashboard.js
-npx eslint src public/dashboard.js --no-config-lookup --rule "no-unused-vars:error"
+node --check MVC/app.js
+node --check MVC/public/js/dashboard.js
+npx eslint MVC MVC/public/js/dashboard.js --no-config-lookup --rule "no-unused-vars:error"
 ```
 
 Các luồng cần kiểm tra sau mỗi thay đổi:

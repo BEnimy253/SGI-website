@@ -1,10 +1,12 @@
 import path from "node:path";
 
 export class Page {
+    #htmlDirectory;
     #route;
 
-    constructor(route) {
+    constructor(route, htmlDirectory) {
         this.#route = route;
+        this.#htmlDirectory = htmlDirectory;
     }
 
     register(app) {
@@ -23,7 +25,7 @@ export class Page {
                 return;
             }
 
-            res.sendFile(path.join(process.cwd(), "views", "login.html"));
+            res.sendFile(path.join(this.#htmlDirectory, "login.html"));
         });
 
         app.get(
@@ -31,7 +33,7 @@ export class Page {
             this.#route.requireLogin,
             (req, res) => {
                 res.sendFile(
-                    path.join(process.cwd(), "views", "dashboard.html"),
+                    path.join(this.#htmlDirectory, "dashboard.html"),
                 );
             },
         );

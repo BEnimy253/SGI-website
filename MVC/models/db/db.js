@@ -26,6 +26,7 @@ export class DB {
 
         try {
             await client.query("begin");
+            // Notice to database who is working
             await client.query(
                 "select set_config('app.account_id', $1, true)",
                 [String(req.session.userId ?? "")],

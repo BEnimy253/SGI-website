@@ -1,5 +1,5 @@
 node_modules
 .env
-database/*
-!database/create-db.sql
-!database/update-gradebook-periods.sql
+MVC/database/*
+!MVC/database/create-db.sql
+!MVC/database/update-gradebook-periods.sql
