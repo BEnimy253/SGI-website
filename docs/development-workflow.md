@@ -2,7 +2,6 @@
 
 ## Trước khi thay đổi
 
-- Đọc `AGENTS.md`.
 - Xác định module, route, bảng và trigger liên quan.
 - Kiểm tra `git status`; không ghi đè thay đổi của người khác.
 - Dùng database development, không dùng production nếu không được phép.

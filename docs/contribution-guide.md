@@ -2,7 +2,6 @@
 
 ## Trước khi bắt đầu
 
-- Đọc `AGENTS.md` và tài liệu module liên quan.
 - Xác định source, API và database bị ảnh hưởng.
 - Không dùng production để thử thay đổi chưa kiểm chứng.
 
